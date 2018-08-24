@@ -1,0 +1,129 @@
+CentOS7 安装 Ansible
+Ansible是一款为类Unix系统开发的自由开源的配置和自动化工具。它用Python写成，类似于Chef和Puppet，但是有一个不同和优点是我们不需要在节点中安装任何客户端。它使用SSH来和节点进行通信。 
+本篇中我们将在CentOS 7上安装并配置Ansible，并且尝试管理两个节点。 
+* Ansible 服务端 – hostname:artemis.dbs.wx.com ( 192.168.56.211 ) 
+* 节点: hostname:apollo.dbs.wx.com ( 192.168.56.212 ) 
+* 节点: hostname:uranus.dbs.wx.com ( 192.168.56.213 )
+
+设置EPEL仓库
+[root@artemis ~]# wget http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+使用yum安装epel
+[root@artemis ~]# rpm -ivh epel-release-latest-7.noarch.rpm
+---------------------------------------------------------------------------------------------
+安装完成后，检查ansible版本
+#安装
+[root@artemis ~]# yum -y install ansible
+#版本
+[root@artemis ~]# ansible --version
+ansible 2.2.1.0
+  config file = /etc/ansible/ansible.cfg
+  configured module search path = Default w/o overrides
+---------------------------------------------------------------------------------------------
+设置用于节点鉴权的SSH密钥
+#在Ansible服务端生成密钥，并且复制公钥到节点中
+[root@artemis ~]# ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa.
+Your public key has been saved in /root/.ssh/id_rsa.pub.
+The key fingerprint is:
+93:f0:ed:ba:e7:d4:0b:55:ef:87:b4:57:a9:3f:28:eb root@artemis.dbs.wx.com
+The key's randomart image is:
++--[ RSA 2048]----+
+|                 |
+|                 |
+|      .       .  |
+|       o o   . ..|
+|        S . . ..o|
+|         o o ..+.|
+|          + ..+ +|
+|         o.o o.o.|
+|        o+oE+  ..|
++-----------------+
+#使用ssh-copy-id命令来复制Ansible公钥到节点中
+#添加到节点212:
+[root@artemis ~]# ssh-copy-id -i root@192.168.56.212
+/usr/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/usr/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+root@192.168.56.212's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'root@192.168.56.212'"
+and check to make sure that only the key(s) you wanted were added.
+#添加到节点213:
+[root@artemis ~]# ssh-copy-id -i root@192.168.56.213
+/usr/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/usr/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+root@192.168.56.213's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'root@192.168.56.213'"
+and check to make sure that only the key(s) you wanted were added.
+---------------------------------------------------------------------------------------------
+为Ansible定义节点的清单
+文件 /etc/ansible/hosts 维护着Ansible中服务器的清单。
+[root@artemis ~]# vi /etc/ansible/hosts
+[dbservers]
+192.168.56.212
+192.168.56.213
+尝试在Ansible服务端运行命令
+[root@artemis ~]# ansible -m ping 'dbservers'
+192.168.56.213 | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+192.168.56.212 | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+执行shell命令
+例子1：检查Ansible节点的运行时间（uptime):
+[root@artemis ~]# ansible -m command -a "uptime" 'dbservers'
+192.168.56.213 | SUCCESS | rc=0 >>
+ 23:31:25 up 49 min,  2 users,  load average: 0.00, 0.01, 0.05
+
+192.168.56.212 | SUCCESS | rc=0 >>
+ 23:31:25 up  1:22,  2 users,  load average: 0.00, 0.01, 0.05
+例子2：检查节点的内核版本
+[root@artemis ~]# ansible -m command -a "uname -r" 'dbservers'
+192.168.56.212 | SUCCESS | rc=0 >>
+3.10.0-123.el7.x86_64
+192.168.56.213 | SUCCESS | rc=0 >>
+3.10.0-123.el7.x86_64
+例子3：给节点增加用户
+[root@artemis ~]# ansible -m command -a "useradd david" 'dbservers'
+192.168.56.212 | SUCCESS | rc=0 >>
+
+192.168.56.213 | SUCCESS | rc=0 >>
+
+[root@artemis ~]# ansible -m command -a "grep david /etc/passwd" 'dbservers'
+192.168.56.212 | SUCCESS | rc=0 >>
+david:x:1001:1001::/home/david:/bin/bash
+192.168.56.213 | SUCCESS | rc=0 >>
+david:x:1001:1001::/home/david:/bin/bash
+例子4：重定向输出到文件中
+[root@artemis ~]# ansible -m command -a "df -Th" 'dbservers' > /tmp/command-output.txt
+[root@artemis ~]# cat /tmp/command-output.txt
+192.168.56.212 | SUCCESS | rc=0 >>
+Filesystem              Type      Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root xfs        39G  2.4G   37G   7% /
+devtmpfs                devtmpfs  915M     0  915M   0% /dev
+tmpfs                   tmpfs     921M     0  921M   0% /dev/shm
+tmpfs                   tmpfs     921M  8.4M  913M   1% /run
+tmpfs                   tmpfs     921M     0  921M   0% /sys/fs/cgroup
+/dev/mapper/centos-home xfs        19G  590M   19G   4% /home
+/dev/sda1               xfs       497M   96M  402M  20% /boot
+192.168.56.213 | SUCCESS | rc=0 >>
+Filesystem              Type      Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root xfs        39G  2.4G   37G   7% /
+devtmpfs                devtmpfs  915M     0  915M   0% /dev
+tmpfs                   tmpfs     921M     0  921M   0% /dev/shm
+tmpfs                   tmpfs     921M   17M  905M   2% /run
+tmpfs                   tmpfs     921M     0  921M   0% /sys/fs/cgroup
+/dev/mapper/centos-home xfs        19G  590M   19G   4% /home
+/dev/sda1               xfs       497M  132M  366M  27% /boot
+tmpfs                   tmpfs     185M     0  185M   0% /run/user/0
